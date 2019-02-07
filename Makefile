@@ -13,7 +13,7 @@ build/shove: FORCE
 # which packages to test with static checkers?
 GO_ALLPKGS := $(PKG) $(shell go list $(PKG)/cmd/...)
 
-check: all static-check FORCE
+check: all static-check build/cover.html FORCE
 	@printf "\e[1;32m>> All tests successful.\e[0m\n"
 static-check: FORCE
 	@if ! hash golint 2>/dev/null; then printf "\e[1;36m>> Installing golint...\e[0m\n"; go get -u golang.org/x/lint/golint; fi
@@ -23,6 +23,11 @@ static-check: FORCE
 	@if s="$$(golint . && find cmd pkg -type d -exec golint {} \; 2>/dev/null)" && test -n "$$s"; then printf ' => %s\n%s\n' golint "$$s"; false; fi
 	@printf "\e[1;36m>> go vet\e[0m\n"
 	@$(GO) vet $(GO_ALLPKGS)
+build/cover.out: FORCE
+	@printf "\e[1;36m>> go test\e[0m\n"
+	@$(GO) test -covermode count -coverprofile=$@ .
+build/cover.html: build/cover.out
+	$(GO) tool cover -html $< -o $@
 
 install: FORCE all
 	install -D -m 0755 build/shove "$(DESTDIR)$(PREFIX)/bin/shove"

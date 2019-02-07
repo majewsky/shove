@@ -16,4 +16,84 @@
 *
 ******************************************************************************/
 
+//Package shove is a library for receiving GitHub webhooks. If you don't know
+//what webhooks are, check out GitHub's documentation first:
+//<https://developer.github.com/webhooks/>
 package shove
+
+import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/hex"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"strings"
+)
+
+//Handler is an http.Handler that receives GitHub webhooks. It does not match
+//on paths, so you might want to wrap it in a router that does.
+type Handler struct {
+	//The secret key that GitHub uses to sign events for this webhook.
+	SecretKey string
+	//A mapper function that maps GitHub webhook events into Go types. If not
+	//supplied, DefaultEventDecoder is used.
+	EventDecoder EventDecoder
+	//A callback that gets called once per valid event received. The event
+	//argument can have any type that can be returned by the Handler's
+	//EventDecoder.
+	Callback func(guid string, event interface{})
+}
+
+//ServeHTTP implements the http.Handler interface.
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
+	//check request method
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	//protect against maliciously large payloads (GitHub payloads are capped at 25 MiB)
+	bodyReader := io.LimitReader(r.Body, 25<<20)
+	body, err := ioutil.ReadAll(bodyReader)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	//check signature
+	signature := strings.TrimSpace(r.Header.Get("X-Hub-Signature"))
+	if len(signature) != 45 { // 40 hex digits plus "sha1=" prefix
+		http.Error(w, "invalid X-Hub-Signature header", http.StatusUnauthorized)
+		return
+	}
+
+	mac := hmac.New(sha1.New, []byte(h.SecretKey))
+	mac.Write(body)
+	expectedSignature := "sha1=" + hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		http.Error(w, "invalid X-Hub-Signature header", http.StatusUnauthorized)
+		return
+	}
+
+	//decode event
+	eventType := r.Header.Get("X-GitHub-Event")
+	eventDecoder := EventDecoder(DefaultEventDecoder)
+	if h.EventDecoder != nil {
+		eventDecoder = h.EventDecoder
+	}
+	event, err := eventDecoder(eventType, []byte(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if event == nil {
+		http.Error(w, "event type not supported", http.StatusNotImplemented)
+		return
+	}
+
+	h.Callback(r.Header.Get("X-GitHub-Delivery"), event)
+	w.WriteHeader(http.StatusNoContent)
+}
