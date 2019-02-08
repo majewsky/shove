@@ -1,3 +1,6 @@
 module github.com/majewsky/shove
 
-require gopkg.in/yaml.v2 v2.2.2
+require (
+	github.com/sapcc/go-bits v0.0.0-20190111093410-620b317f22bc
+	gopkg.in/yaml.v2 v2.2.2
+)
