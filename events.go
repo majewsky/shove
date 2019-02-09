@@ -18,7 +18,13 @@
 
 package shove
 
-import "encoding/json"
+//Event is a very minimal interface that mostly helps avoid using interface{}
+//when passing around events of arbitrary types.
+type Event interface {
+	//Returns the event type that was passed to the EventDecoder which
+	//instantiated this event.
+	EventType() string
+}
 
 //EventDecoder is a type of function used by type Handler to decode events of
 //different types. The payload argument contains the JSON body of the event's
@@ -26,63 +32,54 @@ import "encoding/json"
 //GitHub, e.g. "push" or "fork". The possible Go types of events returned by
 //the decoder depend on the decoder.
 //
-//For most users, DefaultEventDecoder should be be the right choice. If
-//DefaultEventDecoder does not yet support a particular event type you're
-//interested in, you can wrap it to add support for it:
+//There is no default catch-all decoder that decodes all events. Payloads have
+//a *huge* amount of fields, and it's probably best for readability if you
+//create your custom event types that decode just the fields you're interested
+//in. A typical EventDecoder implementation looks something like this:
 //
-//	type ExampleEvent struct {
+//	type FooEvent struct {
 //	  Text string `json:"text"`
+//	}
+//	type BarEvent struct {
+//	  Counter int `json:"counter"`
 //	}
 //
 //	func MyEventDecoder(eventType string, payload []byte) (interface{}, error) {
-//	  if eventType == "example" {
-//	    e := ExampleEvent{}
+//	  switch eventType {
+//	  case "foo":
+//	    e := FooEvent{}
+//	    err := json.Unmarshal(payload, &e)
+//	    return e, err
+//	  case "bar":
+//	    e := BarEvent{}
 //	    err := json.Unmarshal(payload, &e)
 //	    return e, err
 //	  }
-//	  return shove.DefaultEventDecoder(eventType)
+//	  return shove.MinimalEventDecoder(eventType)
 //	}
 //
 //All custom event decoders should recognize at least the "ping" event type
 //which is used by GitHub to check the event delivery path to your application.
-//If you don't want to use the event types recognized by DefaultEventDecoder,
-//you can use MinimalEventDecoder as a base. MinimalEventDecoder only recognizes
-//"ping" events.
+//As shown above, you can achieve this by using MinimalEventDecoder as a base.
 //
 //For unrecognized event types, (nil, nil) should be returned, which will cause
 //the handler to not call its callback and return a standardized HTTP error
 //response. If an error is returned, it will be written into the HTTP response
 //body, and an error code of 401 (Bad Request) will be generated.
-type EventDecoder func(eventType string, payload []byte) (event interface{}, err error)
+type EventDecoder func(eventType string, payload []byte) (Event, error)
 
-//DefaultEventDecoder maps event type strings used by GitHub onto the event
-//types provided by this library. See documentation on type EventDecoder for
-//details.
-func DefaultEventDecoder(eventType string, payload []byte) (interface{}, error) {
-	switch eventType {
-	case "ping":
-		e := PingEvent{}
-		err := json.Unmarshal(payload, &e)
-		return e, err
-	default:
-		return nil, nil
-	}
-}
-
-//MinimalEventDecoder returns PingEvent if eventType is "ping", and nil
+//MinimalEventDecoder returns the string "ping" if eventType is "ping", and nil
 //otherwise. See documentation on type EventDecoder for details.
-func MinimalEventDecoder(eventType string, payload []byte) (interface{}, error) {
+func MinimalEventDecoder(eventType string, payload []byte) (Event, error) {
 	if eventType == "ping" {
-		e := PingEvent{}
-		err := json.Unmarshal(payload, &e)
-		return e, err
+		return MinimalPingEvent{}, nil
 	}
 	return nil, nil
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// event types
+//MinimalPingEvent is returned by MinimalEventDecoder and corresponds to
+//"X-GitHub-Event: ping".
+type MinimalPingEvent struct{}
 
-//PingEvent corresponds to "X-GitHub-Event: ping".
-type PingEvent struct {
-}
+//EventType implements the Event interface.
+func (MinimalPingEvent) EventType() string { return "ping" }

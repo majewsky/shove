@@ -37,12 +37,12 @@ type Handler struct {
 	//The secret key that GitHub uses to sign events for this webhook.
 	SecretKey string
 	//A mapper function that maps GitHub webhook events into Go types. If not
-	//supplied, DefaultEventDecoder is used.
+	//supplied, MinimalEventDecoder is used.
 	EventDecoder EventDecoder
 	//A callback that gets called once per valid event received. The event
 	//argument can have any type that can be returned by the Handler's
 	//EventDecoder.
-	Callback func(guid string, event interface{})
+	Callback func(guid string, event Event)
 }
 
 //ServeHTTP implements the http.Handler interface.
@@ -80,7 +80,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	//decode event
 	eventType := r.Header.Get("X-GitHub-Event")
-	eventDecoder := EventDecoder(DefaultEventDecoder)
+	eventDecoder := EventDecoder(MinimalEventDecoder)
 	if h.EventDecoder != nil {
 		eventDecoder = h.EventDecoder
 	}
