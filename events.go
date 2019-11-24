@@ -29,8 +29,8 @@ type Event interface {
 //EventDecoder is a type of function used by type Handler to decode events of
 //different types. The payload argument contains the JSON body of the event's
 //HTTP request. The eventType argument is the event type as specified by
-//GitHub, e.g. "push" or "fork". The possible Go types of events returned by
-//the decoder depend on the decoder.
+//GitHub/Gitea, e.g. "push" or "fork". The possible Go types of events returned
+//by the decoder depend on the decoder.
 //
 //There is no default catch-all decoder that decodes all events. Payloads have
 //a *huge* amount of fields, and it's probably best for readability if you
@@ -44,7 +44,7 @@ type Event interface {
 //	  Counter int `json:"counter"`
 //	}
 //
-//	func MyEventDecoder(eventType string, payload []byte) (interface{}, error) {
+//	func MyEventDecoder(eventType string, payload []byte) (Event, error) {
 //	  switch eventType {
 //	  case "foo":
 //	    e := FooEvent{}
@@ -59,8 +59,9 @@ type Event interface {
 //	}
 //
 //All custom event decoders should recognize at least the "ping" event type
-//which is used by GitHub to check the event delivery path to your application.
-//As shown above, you can achieve this by using MinimalEventDecoder as a base.
+//which is used by GitHub/Gitea to check the event delivery path to your
+//application. As shown above, you can achieve this by using
+//MinimalEventDecoder as a base.
 //
 //For unrecognized event types, (nil, nil) should be returned, which will cause
 //the handler to not call its callback and return a standardized HTTP error

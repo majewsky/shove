@@ -1,6 +1,6 @@
 # shove
 
-This is a CLI utility (and Go library) that reacts to GitHub webhooks in various ways.
+This is a CLI utility (and Go library) that reacts to GitHub/Gitea webhooks in various ways.
 The name reminds you to keep this ready for when `git push` comes to _shove_. :)
 
 ## Usage as an application
@@ -10,8 +10,8 @@ Build with `make && make install`. Only [Go](https://golang.org) is required as 
 Invoke `shove` without any arguments, with the following environment variables set:
 
 - `SHOVE_PORT` defines on which port shove will listen for HTTP requests.
-- `SHOVE_SECRET` contains a secret key which you also need to enter in GitHub's
-  webhook UI, so that GitHub can sign webhook events.
+- `SHOVE_SECRET` contains a secret key which you also need to enter in GitHub/Gitea's
+  webhook UI, so that GitHub/Gitea can sign webhook events.
 - `SHOVE_CONFIG` contains the path to a configuration file. If not,
   `./shove.yaml` is used instead.
 

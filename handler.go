@@ -24,7 +24,9 @@ package shove
 import (
 	"crypto/hmac"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -64,17 +66,12 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//check signature
-	signature := strings.TrimSpace(r.Header.Get("X-Hub-Signature"))
-	if len(signature) != 45 { // 40 hex digits plus "sha1=" prefix
-		http.Error(w, "invalid X-Hub-Signature header", http.StatusUnauthorized)
-		return
+	err = h.checkGitHubSignature(r, body)
+	if err == errNoSignature {
+		err = h.checkGiteaSignature(r, body)
 	}
-
-	mac := hmac.New(sha1.New, []byte(h.SecretKey))
-	mac.Write(body)
-	expectedSignature := "sha1=" + hex.EncodeToString(mac.Sum(nil))
-	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
-		http.Error(w, "invalid X-Hub-Signature header", http.StatusUnauthorized)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
 
@@ -96,4 +93,47 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.Callback(r.Header.Get("X-GitHub-Delivery"), event)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+var (
+	errNoSignature      = errors.New("missing signature header (X-Hub-Signature or X-Gitea-Signature)")
+	errInvalidSignature = errors.New("invalid signature header")
+)
+
+func (h Handler) checkGitHubSignature(r *http.Request, body []byte) error {
+	signature := strings.TrimSpace(r.Header.Get("X-Hub-Signature"))
+	if signature == "" {
+		return errNoSignature
+	}
+	if len(signature) != 45 { // 40 hex digits plus "sha1=" prefix
+		return errInvalidSignature
+	}
+
+	mac := hmac.New(sha1.New, []byte(h.SecretKey))
+	mac.Write(body)
+	expectedSignature := "sha1=" + hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return errInvalidSignature
+	}
+
+	return nil
+}
+
+func (h Handler) checkGiteaSignature(r *http.Request, body []byte) error {
+	signature := strings.TrimSpace(r.Header.Get("X-Gitea-Signature"))
+	if signature == "" {
+		return errNoSignature
+	}
+	if len(signature) != 64 { // 64 hex digits, without any prefix
+		return errInvalidSignature
+	}
+
+	mac := hmac.New(sha256.New, []byte(h.SecretKey))
+	mac.Write(body)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return errInvalidSignature
+	}
+
+	return nil
 }

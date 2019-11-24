@@ -26,10 +26,16 @@ import (
 	"testing"
 )
 
+type testEvent struct {
+	HookID int `json:"hook_id"`
+}
+
+//EventType implements the Event interface.
+func (testEvent) EventType() string {
+	return "ping"
+}
+
 func TestHandler(t *testing.T) {
-	type testEvent struct {
-		HookID int `json:"hook_id"`
-	}
 	type receivedEvent struct {
 		GUID       string
 		WasPointer bool
@@ -44,7 +50,7 @@ func TestHandler(t *testing.T) {
 		ResponseCode int
 		ResponseBody string
 	}{
-		//case 1: success case
+		//case 1a: success case with GitHub-style signature
 		{
 			Method: "POST",
 			Headers: map[string]string{
@@ -62,7 +68,25 @@ func TestHandler(t *testing.T) {
 			},
 			ResponseCode: 204,
 		},
-		//case 2: like case 1, but broken HMAC
+		//case 1b: success case with Gitea-style signature (Gitea uses HMAC-SHA256
+		//instead of HMAC-SHA1, but otherwise generates the X-GitHub-... headers
+		//and request body in the same way as GitHub for compatibility purposes)
+		{
+			Method: "POST",
+			Headers: map[string]string{
+				"X-GitHub-Delivery": "first",
+				"X-GitHub-Event":    "ping",
+				"X-Gitea-Signature": "63e8905ed20fa4cef5b1be5dc6a111615b04e1f7ffc43716ade5b7b27f93b17d",
+			},
+			Body: `{"hook_id":42}`,
+			Expected: &receivedEvent{
+				GUID:       "first",
+				WasPointer: false,
+				Event:      testEvent{HookID: 42},
+			},
+			ResponseCode: 204,
+		},
+		//case 2a/b: like case 1a/b, but broken HMAC
 		{
 			Method: "POST",
 			Headers: map[string]string{
@@ -72,9 +96,20 @@ func TestHandler(t *testing.T) {
 			},
 			Body:         `{"hook_id":42}`,
 			ResponseCode: 401,
-			ResponseBody: "invalid X-Hub-Signature header",
+			ResponseBody: "invalid signature header",
 		},
-		//case 3: like case 1, but malformed HMAC (does not even look like a valid HMAC-SHA1)
+		{
+			Method: "POST",
+			Headers: map[string]string{
+				"X-GitHub-Delivery": "second",
+				"X-GitHub-Event":    "ping",
+				"X-Gitea-Signature": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+			Body:         `{"hook_id":42}`,
+			ResponseCode: 401,
+			ResponseBody: "invalid signature header",
+		},
+		//case 3a/b: like case 1a/b, but malformed HMAC (does not even look like a valid HMAC-SHA1 or HMAC-SHA256)
 		{
 			Method: "POST",
 			Headers: map[string]string{
@@ -84,7 +119,18 @@ func TestHandler(t *testing.T) {
 			},
 			Body:         `{"hook_id":42}`,
 			ResponseCode: 401,
-			ResponseBody: "invalid X-Hub-Signature header",
+			ResponseBody: "invalid signature header",
+		},
+		{
+			Method: "POST",
+			Headers: map[string]string{
+				"X-GitHub-Delivery": "third",
+				"X-GitHub-Event":    "ping",
+				"X-Gitea-Signature": "42",
+			},
+			Body:         `{"hook_id":42}`,
+			ResponseCode: 401,
+			ResponseBody: "invalid signature header",
 		},
 		//case 4: error during json.Unmarshal
 		{
@@ -100,7 +146,7 @@ func TestHandler(t *testing.T) {
 			ResponseCode: 400,
 			ResponseBody: "json: cannot unmarshal string into Go struct field testEvent.hook_id of type int",
 		},
-		//case 5: like case 1, but invalid method
+		//case 5: like case 1a, but invalid method
 		{
 			Method: "GET",
 			Headers: map[string]string{
@@ -114,7 +160,7 @@ func TestHandler(t *testing.T) {
 			ResponseCode: 405,
 			ResponseBody: "method not allowed",
 		},
-		//case 6: like case 1, but unknown X-GitHub-Event type
+		//case 6: like case 1a, but unknown X-GitHub-Event type
 		{
 			Method: "POST",
 			Headers: map[string]string{
@@ -133,7 +179,7 @@ func TestHandler(t *testing.T) {
 	var receivedEvents []receivedEvent
 	handler := Handler{
 		SecretKey: "verysecret",
-		EventDecoder: func(eventType string, payload []byte) (interface{}, error) {
+		EventDecoder: func(eventType string, payload []byte) (Event, error) {
 			if eventType == "ping" {
 				e := testEvent{}
 				err := json.Unmarshal(payload, &e)
@@ -141,7 +187,7 @@ func TestHandler(t *testing.T) {
 			}
 			return nil, nil
 		},
-		Callback: func(guid string, event interface{}) {
+		Callback: func(guid string, event Event) {
 			switch event := event.(type) {
 			case testEvent:
 				receivedEvents = append(receivedEvents, receivedEvent{guid, false, event})
